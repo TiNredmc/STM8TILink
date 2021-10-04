@@ -2,40 +2,31 @@
 // FW_VERSION  180701 (yymmdd) - Author: Emilio P.G. Ficara
 // Modified to use with STM8TI by TinLethax
 // V180701
-//  Start of job
 
-
-////////////////////////////////////////////////////////////////////////////////
-// System includes
-//
 #include <stm8s.h> // DO NOT USE here generic iostm8s.h (register map is different)
 #include <delay.h>
 #include <stdint.h>
 #include <stdbool.h>
-////////////////////////////////////////////////////////////////////////////////
-// Global constants
-//
+
+/* TIM4 stuffs */
+// arr value for TIM4 millis() interupt.
 #define TOP1MS		124 // Tim4 compare top value for 1mS tick
-
-////////////////////////////////////////////////////////////////////////////////
-// Global constants
-//
+// millis() return value
 volatile uint16_t mil = 0;
+uint16_t millis(void);
 
-////////////////////////////////////////////////////////////////////////////////
-// Global variables
-//
+/* UART stuffs */
 volatile uint8_t echo = 0; // flag for "RX data is echo of TX"
 volatile uint8_t DataFlag = 0;
 volatile uint8_t revDat[4] = {0}; //data receive over the UART
-////////////////////////////////////////////////////////////////////////////////
-// variables for TI stuffs
-//
+
+/* variables for TI stuffs */
+
 const uint8_t TIP = 5; //PC5 Tip pin
 const uint8_t RING = 6; //PC6 Ring pin
 const uint8_t TXTIMEOUT = 70; //50ms
 const uint8_t RXTIMEOUT = 40; //20ms
-uint16_t millis(void);
+
 
 #define TI_TIP_IS_HIGH   (PC_IDR & 0x10) 
 #define TI_RING_IS_HIGH (PC_IDR & 0x20)
@@ -83,11 +74,6 @@ void OutCom(unsigned char c)// sending single byte from calc to PC
 	while(echo); // wait until echo received
 }
 
-void prntf(uint8_t *txt){
-	while(*txt)
-		OutCom(*txt++);
-}
-
 //------------------------------------------------------------------------------
 // Interrupts section
 //
@@ -97,8 +83,8 @@ void tim4_millis_irq(void) __interrupt(23)// The millis part, every 1 ms
      mil++;
 }
 
-void USART1_RX(void) __interrupt(18) // Deal with the incoming data from PC and soon will transfer to calc
-{
+void USART1_RX(void) __interrupt(18){ // Deal with the incoming data from PC and soon will transfer to calc
+
 uint8_t e;
 
 	e = UART1_SR; // read / clear (and ignore) error flags
@@ -191,8 +177,7 @@ void sendByte(uint8_t byte){
   }
 }
 
-bool getByte(uint8_t *byte)
-{
+bool getByte(uint8_t *byte){
    uint16_t currentTime;
     uint8_t result = 0;
     for (uint8_t i = 0; i < 8; ++i)
@@ -263,22 +248,19 @@ bool getByte(uint8_t *byte)
 return true;
 
 }
-////////////////////////////////////////////////////////////////////////////////
-// Main Program
-//
-
 
 void main(void)
 {
 	CLK_CKDIVR = 0x00;  // Set the frequency to 16 MHz
 
-	// Check for Download mode pin holding
-	while(PB_IDR & (1 << 4));// for holding pin 8 for SWIM
-	delay_ms(1000);
+	delay_ms(1000);// startup delay for SWIM programming before take over the SWIM pin for other usage.
 
 	PA_ODR |= 0x08; // 0000.1000 All PA data is 0 except PA3 (UART_TX)
 	PA_DDR |= 0x08; // 0000.1000 PA.3 is output
 	PA_CR1 |= 0x00; // 0000.0000 PA.3 is open drain
+
+	PB_DDR |= (1 << 4);// PB 4 as output open-drain
+	PB_ODR |= (1 << 4);// immediately release pull down. 
 
    	 //configure both lines as input and enable pull-up resistors
 	//PC_DDR = (0 << TIP) | (0 << RING);
@@ -301,7 +283,7 @@ void main(void)
 	TIM4_CR1 |= 0x01;
 
   	 __asm__("rim");
-	//prntf("STM8TILink starting...\n");
+
 	while(1){
 		while(DataFlag){
 			sendByte(revDat[0]);
@@ -313,7 +295,9 @@ void main(void)
 
 		uint8_t byteFromCalc = 0;
 		if (getByte(&byteFromCalc)){
+			PB_ODR &= ~(1 << 4);// pull low to switch from B2 to B1 and connect CH330's RX to MCU pin.
 			OutCom(byteFromCalc);
+			PB_ODR |= (1 << 4);// release to switch back to B2 (has a pul up for CH330's RX pin).
 		}
 	}
 }
